@@ -8,11 +8,11 @@ permalink: /software/
 
 Database row search and navigation using unique and foreign key constraints
 
-[https://github.com/vzhn/db-tree-fx](Github link)
+[db-tree-fx](https://github.com/db-tree/db-tree-fx)
 
 
 ### bstreamer
 
 RTSP/h264 ip camera emulator
 
-[https://github.com/vzhn/bstreamer](Github link)
+[bstreamer](https://github.com/vzhn/bstreamer)
