@@ -10,6 +10,8 @@ permalink: /software/
 
 Database row search and navigation using unique and foreign key constraints
 
+![](https://github.com/db-tree/db-tree-fx/raw/master/site/screen.png)
+
 [github link](https://github.com/db-tree/db-tree-fx)
 
 
