@@ -1,28 +1,28 @@
 ---
 layout: post
-title: Demuxing and decoding h264 video with java
+title: Decoding h264 (mkv) video with java
 ---
+How to decode h264 stream with java and awesome [bytedeco ffmpeg library](https://github.com/bytedeco/javacpp-presets/tree/master/ffmpeg).
 
-How to decode h264 video stream with java
 <!--more-->
+At first, we are need to open matroska file and initialize AVFormatContext structure. AVFormatContext is responsible for a video demuxing.
 
-Initialize AVFormatContext
 ```java
 private AVFormatContext openInput(String file) throws IOException {
     avfmtCtx = new AVFormatContext(null);
     BytePointer filePointer = new BytePointer(file);
     int r = avformat.avformat_open_input(avfmtCtx, filePointer, null, null);
     filePointer.deallocate();
-
     if (r < 0) {
         avfmtCtx.close();
         throw new IOException("avformat_open_input error: " + r);
-     }
+    }
     return avfmtCtx;
 }
 ```
 
-Find video stream
+Media file may contain multiple streams, such as video, audio, subtitles, etc. 
+
 ```java
 private void findVideoStream() throws IOException {
     int r = avformat_find_stream_info(avfmtCtx, (PointerPointer) null);
@@ -42,22 +42,24 @@ private void findVideoStream() throws IOException {
         throw new IOException("failed to find h264 stream");
     }
     decoderRet.deallocate();
-    st =  avfmtCtx.streams(videoStreamNumber);
+    videoStream =  avfmtCtx.streams(videoStreamNumber);
 }
 ```
 
-Setup h264 decoder
+H264 decoder must be properly initialized using stream information.
+* allocate codec using `avcodec_alloc_context3` function.
+* setup codec parameters using `avcodec_parameters_to_context`
+* open codec `avcodec_open2`
+
 ```java
 private void initDecoder() {
     codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-    codecoContext = avcodec_alloc_context3(codec);
-
+    codecContext = avcodec_alloc_context3(codec);
     if((codec.capabilities() & avcodec.AV_CODEC_CAP_TRUNCATED) != 0) {
-        codecoContext.flags(codecoContext.flags() | avcodec.AV_CODEC_CAP_TRUNCATED);
+        codecContext.flags(codecContext.flags() | avcodec.AV_CODEC_CAP_TRUNCATED);
     }
-
-    avcodec_parameters_to_context(codecoContext, st.codecpar());
-    if(avcodec_open2(codecoContext, codec, (PointerPointer) null) < 0) {
+    avcodec_parameters_to_context(codecContext, videoStream.codecpar());
+    if(avcodec_open2(codecContext, codec, (PointerPointer) null) < 0) {
         throw new RuntimeException("Error: could not open codec.\n");
     }
 }
@@ -68,8 +70,7 @@ Allocate yuv420p frame
 private void initYuv420Frame() {
     yuv420Frame = av_frame_alloc();
     if (yuv420Frame == null) {
-        System.err.println("Could not allocate video frame\n");
-        System.exit(1);
+        throw new RuntimeException("Could not allocate video frame\n");
     }
 }
 ```
@@ -79,63 +80,85 @@ Allocate RGB frame
 private void initRgbFrame() {
     rgbFrame = av_frame_alloc();
     rgbFrame.format(AV_PIX_FMT_RGB24);
-    rgbFrame.width(codecoContext.width());
-    rgbFrame.height(codecoContext.height());
-    int ret = av_image_alloc(rgbFrame.data(), rgbFrame.linesize(), rgbFrame.width(), rgbFrame.height(), rgbFrame.format(), 32);
+    rgbFrame.width(codecContext.width());
+    rgbFrame.height(codecContext.height());
+    int ret = av_image_alloc(rgbFrame.data(),
+            rgbFrame.linesize(),
+            rgbFrame.width(),
+            rgbFrame.height(),
+            rgbFrame.format(),
+            32);
     if (ret < 0) {
-        System.err.println("could not allocate buffer!");
+        throw new RuntimeException("could not allocate buffer!");
     }
-
     img = new BufferedImage(rgbFrame.width(), rgbFrame.height(), BufferedImage.TYPE_3BYTE_BGR);
 }
 ```
 
 Initialize sws context
 ```java
-    private void getSwsContext() {
-        sws_ctx = swscale.sws_getContext(
-                codecoContext.width(), codecoContext.height(), codecoContext.pix_fmt(),
-                rgbFrame.width(), rgbFrame.height(), rgbFrame.format(),
-                0, null, null, (DoublePointer) null);
-    }
+private void getSwsContext() {
+    sws_ctx = swscale.sws_getContext(
+            codecContext.width(), codecContext.height(), codecContext.pix_fmt(),
+            rgbFrame.width(), rgbFrame.height(), rgbFrame.format(),
+            0, null, null, (DoublePointer) null);
+}
 ```
 
 And finally we are ready to decode video
-```java
-private void start(String[] argv) throws IOException {
-    av_log_set_level(AV_LOG_VERBOSE);
-
-    openInput(argv[0]);
-    findVideoStream();
-    initDecoder();
-    initRgbFrame();
-    initYuv420Frame();
-    getSwsContext();
-
-    avpacket = new avcodec.AVPacket();
-    while ((av_read_frame(avfmtCtx, avpacket)) >= 0) {
-        int ret = avcodec.avcodec_send_packet(codecoContext, avpacket);
-        if (ret < 0) {
-            System.err.println("Error sending a packet for decoding\n");
-            System.exit(1);
-        }
-        while (ret >= 0) {
-            ret = avcodec.avcodec_receive_frame(codecoContext, yuv420Frame);
-            if (ret == AVERROR_EAGAIN() || ret == AVERROR_EOF()) {
-                continue;
-            } else
-            if (ret < 0) {
-                System.err.println("error during decoding");
-            }
-
-            swscale.sws_scale(sws_ctx, yuv420Frame.data(), yuv420Frame.linesize(), 0, yuv420Frame.height(), rgbFrame.data(), rgbFrame.linesize());
-
-            DataBufferByte buffer = (DataBufferByte) img.getRaster().getDataBuffer();
-            rgbFrame.data(0).get(buffer.getData());
-        }
+```java    
+...
+while ((av_read_frame(avfmtCtx, avpacket)) >= 0) {
+    if (avpacket.stream_index() == videoStream.index()) {
+        processAVPacket(avpacket);
     }
+    av_packet_unref(avpacket);
+    }
+// now process delayed frames
+processAVPacket(null);
+...
 
-    free();
+private void processAVPacket(AVPacket avpacket) throws IOException {
+    int ret = avcodec.avcodec_send_packet(codecContext, avpacket);
+    if (ret < 0) {
+        throw new RuntimeException("Error sending a packet for decoding\n");
+    }
+    receiveFrames();
+}
+
+private void receiveFrames() throws IOException {
+    int ret = 0;
+    while (ret >= 0) {
+        ret = avcodec.avcodec_receive_frame(codecContext, yuv420Frame);
+        if (ret == AVERROR_EAGAIN() || ret == AVERROR_EOF()) {
+            continue;
+        } else
+        if (ret < 0) {
+            throw new RuntimeException("error during decoding");
+        }
+        swscale.sws_scale(sws_ctx, yuv420Frame.data(), yuv420Frame.linesize(), 0,
+                yuv420Frame.height(), rgbFrame.data(), rgbFrame.linesize());
+
+        rgbFrame.best_effort_timestamp(yuv420Frame.best_effort_timestamp());
+        processFrame(rgbFrame);
+    }
+}
+
+private void processFrame(AVFrame rgbFrame) throws IOException {
+    DataBufferByte buffer = (DataBufferByte) img.getRaster().getDataBuffer();
+    rgbFrame.data(0).get(buffer.getData());
+
+    long ptsMillis = av_rescale_q(rgbFrame.best_effort_timestamp(), videoStream.time_base(), tb1000);
+    Duration d = Duration.of(ptsMillis, ChronoUnit.MILLIS);
+
+    String name = String.format("img_%05d_%02d-%02d-%02d-%03d.png", ++nframe,
+            d.toHoursPart(),
+            d.toMinutesPart(),
+            d.toSecondsPart(),
+            d.toMillisPart());
+    ImageIO.write(img, "png", new File(name));
 }
 ```
+
+Full code sample is available [here](https://github.com/vzhn/ffmpeg-java-samples/blob/master/src/main/java/DemuxAndDecodeH264.java)
 
