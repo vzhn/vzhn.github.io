@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Decoding h264 (mkv) video with java
+tags: h264 java ffmpeg
 ---
 How to decode h264 stream with java and awesome [bytedeco ffmpeg library](https://github.com/bytedeco/javacpp-presets/tree/master/ffmpeg).
 
