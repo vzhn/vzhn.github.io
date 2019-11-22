@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.6.1 -->
+<title>Encoding h264 video with java | Vladimir Zhilin</title>
+<meta name="generator" content="Jekyll v4.0.0" />
+<meta property="og:title" content="Encoding h264 video with java" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="How to encode sequence of java BufferedImage into h264 video stream packed into Matroska media container" />
+<meta property="og:description" content="How to encode sequence of java BufferedImage into h264 video stream packed into Matroska media container" />
+<link rel="canonical" href="https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html" />
+<meta property="og:url" content="https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html" />
+<meta property="og:site_name" content="Vladimir Zhilin" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2019-11-22T00:00:00+03:00" />
+<script type="application/ld+json">
+{"description":"How to encode sequence of java BufferedImage into h264 video stream packed into Matroska media container","@type":"BlogPosting","headline":"Encoding h264 video with java","dateModified":"2019-11-22T00:00:00+03:00","url":"https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html","datePublished":"2019-11-22T00:00:00+03:00","mainEntityOfPage":{"@type":"WebPage","@id":"https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html"},"@context":"https://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="https://vzhilin.me/feed.xml" title="Vladimir Zhilin" /><script>
+if(!(window.doNotTrack === "1" || navigator.doNotTrack === "1" || navigator.doNotTrack === "yes" || navigator.msDoNotTrack === "1")) {
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-151353055-1', 'auto');
+  ga('send', 'pageview');
+}
+</script>
+  
+</head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">Vladimir Zhilin</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/software/">Sofware</a><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Encoding h264 video with java</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2019-11-22T00:00:00+03:00" itemprop="datePublished">Nov 22, 2019
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>How to encode sequence of java <code class="highlighter-rouge">BufferedImage</code> into <code class="highlighter-rouge">h264</code> video stream packed into Matroska media container</p>
+
+<!--more-->
+
+<h3 id="preparation">Preparation</h3>
+
+<p>We need several structures:</p>
+<ul>
+  <li><code class="highlighter-rouge">BufferedImage</code> to draw pictures</li>
+  <li>RGB <code class="highlighter-rouge">AVFrame</code> for BufferedImage contents</li>
+  <li><code class="highlighter-rouge">sws_context</code> from <code class="highlighter-rouge">libswscale</code> library to convert RGB <code class="highlighter-rouge">AVFrame</code> into yuv420p <code class="highlighter-rouge">AVFrame</code></li>
+  <li>yuv420p <code class="highlighter-rouge">AVFrame</code> for processing by codec context</li>
+  <li>h264 codec context to encode <code class="highlighter-rouge">AVFrame</code> into AVPackets</li>
+  <li><code class="highlighter-rouge">AVFormatContext</code> to write <code class="highlighter-rouge">AVPacket</code>s into Matroska media container</li>
+</ul>
+
+<p>Allocate codec context:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">codec</span> <span class="o">=</span> <span class="n">avcodec_find_encoder</span><span class="o">(</span><span class="no">AV_CODEC_ID_H264</span><span class="o">);</span>
+<span class="n">cc</span> <span class="o">=</span> <span class="n">avcodec_alloc_context3</span><span class="o">(</span><span class="n">codec</span><span class="o">);</span>
+</code></pre></div></div>
+
+<p>Fill codec parameters:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">cc</span><span class="o">.</span><span class="na">bit_rate</span><span class="o">(</span><span class="n">bitrate</span><span class="o">);</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">width</span><span class="o">(</span><span class="n">width</span><span class="o">);</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">height</span><span class="o">(</span><span class="n">height</span><span class="o">);</span>
+<span class="n">codecTimebase</span> <span class="o">=</span> <span class="k">new</span> <span class="n">avutil</span><span class="o">.</span><span class="na">AVRational</span><span class="o">();</span>
+<span class="n">codecTimebase</span><span class="o">.</span><span class="na">num</span><span class="o">(</span><span class="mi">1</span><span class="o">);</span>
+<span class="n">codecTimebase</span><span class="o">.</span><span class="na">den</span><span class="o">(</span><span class="n">fps</span><span class="o">);</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">time_base</span><span class="o">(</span><span class="n">codecTimebase</span><span class="o">);</span> <span class="c1">// timebase = 1/fps</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">gop_size</span><span class="o">(</span><span class="n">gopSize</span><span class="o">);</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">max_b_frames</span><span class="o">(</span><span class="n">maxBFrames</span><span class="o">);</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">profile</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="s">""</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">profile</span><span class="o">))</span> <span class="o">{</span>
+    <span class="n">av_opt_set</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">priv_data</span><span class="o">(),</span> <span class="s">"profile"</span><span class="o">,</span> <span class="n">profile</span><span class="o">,</span> <span class="mi">0</span><span class="o">);</span>
+<span class="o">}</span>
+
+<span class="n">cc</span><span class="o">.</span><span class="na">pix_fmt</span><span class="o">(</span><span class="n">avutil</span><span class="o">.</span><span class="na">AV_PIX_FMT_YUV420P</span><span class="o">);</span>
+<span class="c1">// place SPS and PPS to extradata field</span>
+<span class="n">cc</span><span class="o">.</span><span class="na">flags</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">flags</span><span class="o">()</span> <span class="o">|</span> <span class="no">AV_CODEC_FLAG_GLOBAL_HEADER</span><span class="o">);</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">avcodec_open2</span><span class="o">(</span><span class="n">cc</span><span class="o">,</span> <span class="n">codec</span><span class="o">,</span> <span class="o">(</span><span class="nc">AVDictionary</span><span class="o">)</span> <span class="kc">null</span><span class="o">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"could not open codec"</span><span class="o">);</span>
+<span class="o">}</span>
+
+</code></pre></div></div>
+
+<p>Allocate AVPacket:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nc">AVPacket</span> <span class="n">pkt</span> <span class="o">=</span> <span class="n">av_packet_alloc</span><span class="o">();</span>
+</code></pre></div></div>
+
+<p>Allocate yuv420p AVFrame:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">frame</span> <span class="o">=</span> <span class="n">av_frame_alloc</span><span class="o">();</span>
+<span class="n">frame</span><span class="o">.</span><span class="na">format</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">pix_fmt</span><span class="o">());</span> <span class="c1">// AV_PIX_FMT_YUV420P</span>
+<span class="n">frame</span><span class="o">.</span><span class="na">width</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">width</span><span class="o">());</span>
+<span class="n">frame</span><span class="o">.</span><span class="na">height</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">height</span><span class="o">());</span>
+<span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">av_frame_get_buffer</span><span class="o">(</span><span class="n">frame</span><span class="o">,</span> <span class="mi">32</span><span class="o">);</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Could not allocate the video frame data"</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Allocate RGB <code class="highlighter-rouge">AVFrame</code> and <code class="highlighter-rouge">BufferedImage</code>:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">image</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">BufferedImage</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">width</span><span class="o">(),</span> <span class="n">cc</span><span class="o">.</span><span class="na">height</span><span class="o">(),</span> <span class="nc">BufferedImage</span><span class="o">.</span><span class="na">TYPE_3BYTE_BGR</span><span class="o">);</span>
+
+<span class="n">rgbFrame</span> <span class="o">=</span> <span class="n">av_frame_alloc</span><span class="o">();</span>
+<span class="n">rgbFrame</span><span class="o">.</span><span class="na">format</span><span class="o">(</span><span class="no">AV_PIX_FMT_BGR24</span><span class="o">);</span>
+<span class="n">rgbFrame</span><span class="o">.</span><span class="na">width</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">width</span><span class="o">());</span>
+<span class="n">rgbFrame</span><span class="o">.</span><span class="na">height</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">height</span><span class="o">());</span>
+<span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">av_frame_get_buffer</span><span class="o">(</span><span class="n">rgbFrame</span><span class="o">,</span> <span class="mi">32</span><span class="o">);</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Could not allocate the video frame data"</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Allocate sws_context:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="n">swsContext</span> <span class="o">=</span> <span class="n">sws_getContext</span><span class="o">(</span><span class="n">rgbFrame</span><span class="o">.</span><span class="na">width</span><span class="o">(),</span> <span class="n">rgbFrame</span><span class="o">.</span><span class="na">height</span><span class="o">(),</span> <span class="n">rgbFrame</span><span class="o">.</span><span class="na">format</span><span class="o">(),</span>
+        <span class="n">frame</span><span class="o">.</span><span class="na">width</span><span class="o">(),</span> <span class="n">frame</span><span class="o">.</span><span class="na">height</span><span class="o">(),</span> <span class="n">frame</span><span class="o">.</span><span class="na">format</span><span class="o">(),</span> <span class="no">SWS_BICUBIC</span><span class="o">,</span>
+        <span class="kc">null</span><span class="o">,</span> <span class="kc">null</span><span class="o">,</span> <span class="o">(</span><span class="nc">DoublePointer</span><span class="o">)</span> <span class="kc">null</span><span class="o">);</span>
+
+<span class="k">if</span> <span class="o">(</span><span class="n">swsContext</span><span class="o">.</span><span class="na">isNull</span><span class="o">())</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Could not init sws context!"</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Allocate <code class="highlighter-rouge">AVFormatContext</code>:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">oc</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">AVFormatContext</span><span class="o">();</span>
+<span class="kt">int</span> <span class="n">r</span> <span class="o">=</span> <span class="n">avformat_alloc_output_context2</span><span class="o">(</span><span class="n">oc</span><span class="o">,</span> <span class="kc">null</span><span class="o">,</span> <span class="kc">null</span><span class="o">,</span> <span class="n">ofile</span><span class="o">);</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">r</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"could not allocate output context"</span><span class="o">);</span>
+<span class="o">}</span>
+<span class="n">fmt</span> <span class="o">=</span> <span class="n">oc</span><span class="o">.</span><span class="na">oformat</span><span class="o">();</span>
+<span class="nc">AVStream</span> <span class="n">st</span> <span class="o">=</span> <span class="n">avformat_new_stream</span><span class="o">(</span><span class="n">oc</span><span class="o">,</span> <span class="n">codec</span><span class="o">);</span>
+<span class="n">avcodec_parameters_from_context</span><span class="o">(</span><span class="n">st</span><span class="o">.</span><span class="na">codecpar</span><span class="o">(),</span> <span class="n">cc</span><span class="o">);</span>
+<span class="n">st</span><span class="o">.</span><span class="na">time_base</span><span class="o">(</span><span class="n">cc</span><span class="o">.</span><span class="na">time_base</span><span class="o">());</span>
+
+<span class="n">av_dump_format</span><span class="o">(</span><span class="n">oc</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">ofile</span><span class="o">,</span> <span class="mi">1</span><span class="o">);</span>
+
+<span class="cm">/* open the output file, if needed */</span>
+<span class="nc">PointerPointer</span> <span class="n">pp</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">PointerPointer</span><span class="o">(</span><span class="mi">1</span><span class="o">);</span>
+<span class="k">try</span> <span class="o">{</span>
+    <span class="k">if</span> <span class="o">(</span><span class="n">avio_open</span><span class="o">(</span><span class="n">pp</span><span class="o">,</span> <span class="k">new</span> <span class="nc">BytePointer</span><span class="o">(</span><span class="n">ofile</span><span class="o">),</span> <span class="no">AVIO_FLAG_WRITE</span><span class="o">)</span> <span class="o">&lt;</span><span class="mi">0</span><span class="o">){</span>
+        <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Could not open "</span> <span class="o">+</span> <span class="n">fmt</span><span class="o">);</span>
+    <span class="o">}</span>
+    <span class="n">oc</span><span class="o">.</span><span class="na">pb</span><span class="o">(</span><span class="k">new</span> <span class="nc">AVIOContext</span><span class="o">(</span><span class="n">pp</span><span class="o">.</span><span class="na">get</span><span class="o">()));</span>
+<span class="o">}</span> <span class="k">finally</span> <span class="o">{</span>
+    <span class="n">pp</span><span class="o">.</span><span class="na">deallocate</span><span class="o">();</span>
+<span class="o">}</span>
+
+<span class="cm">/* Write the stream header, if any. */</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">avformat_write_header</span><span class="o">(</span><span class="n">oc</span><span class="o">,</span> <span class="o">(</span><span class="nc">AVDictionary</span><span class="o">)</span> <span class="kc">null</span><span class="o">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Error occurred when opening output file\n"</span><span class="o">);</span>
+<span class="o">}</span>
+
+<span class="n">streamTimebase</span> <span class="o">=</span> <span class="n">st</span><span class="o">.</span><span class="na">time_base</span><span class="o">();</span>
+</code></pre></div></div>
+
+<p>and finally we are ready to encode pictures into h264 stream</p>
+<h3 id="encode-bufferedimages">Encode BufferedImages</h3>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">nFrames</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+    <span class="c1">// convert 1/fps timebase into stream timebase </span>
+    <span class="c1">// (typically 1/1000 fraction of second)</span>
+    <span class="n">frame</span><span class="o">.</span><span class="na">pts</span><span class="o">(</span><span class="n">avutil</span><span class="o">.</span><span class="na">av_rescale_q</span><span class="o">(</span><span class="n">i</span><span class="o">,</span> <span class="n">codecTimebase</span><span class="o">,</span> <span class="n">streamTimebase</span><span class="o">));</span>
+
+    <span class="n">drawFrame</span><span class="o">(</span><span class="n">i</span><span class="o">);</span>
+    <span class="n">sendFrame</span><span class="o">(</span><span class="n">frame</span><span class="o">);</span>
+<span class="o">}</span>
+<span class="n">sendFrame</span><span class="o">(</span><span class="kc">null</span><span class="o">);</span>      <span class="c1">// do not forget to write delayed frames</span>
+<span class="n">av_write_trailer</span><span class="o">(</span><span class="n">oc</span><span class="o">);</span> <span class="c1">// close media container properly</span>
+<span class="n">free</span><span class="o">(</span><span class="n">cc</span><span class="o">,</span> <span class="n">oc</span><span class="o">);</span>  	      <span class="c1">// close the rest of resources</span>
+</code></pre></div></div>
+<p>Draw some pictures on a <code class="highlighter-rouge">BufferedImage</code>:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">private</span> <span class="kt">void</span> <span class="nf">drawFrame</span><span class="o">(</span><span class="kt">int</span> <span class="n">n</span><span class="o">)</span> <span class="o">{</span>
+    <span class="c1">// draw something on a picture</span>
+    <span class="nc">Graphics</span> <span class="n">gc</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="na">getGraphics</span><span class="o">();</span>
+    <span class="n">gc</span><span class="o">.</span><span class="na">clearRect</span><span class="o">(</span><span class="mi">0</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">image</span><span class="o">.</span><span class="na">getWidth</span><span class="o">(),</span> <span class="n">image</span><span class="o">.</span><span class="na">getHeight</span><span class="o">());</span>
+    <span class="n">gc</span><span class="o">.</span><span class="na">setFont</span><span class="o">(</span><span class="n">gc</span><span class="o">.</span><span class="na">getFont</span><span class="o">().</span><span class="na">deriveFont</span><span class="o">(</span><span class="mi">50</span><span class="n">f</span><span class="o">));</span>
+    <span class="n">gc</span><span class="o">.</span><span class="na">drawString</span><span class="o">(</span><span class="nc">String</span><span class="o">.</span><span class="na">format</span><span class="o">(</span><span class="s">"pts: %d"</span><span class="o">,</span> <span class="n">n</span><span class="o">),</span> <span class="mi">200</span><span class="o">,</span> <span class="mi">200</span><span class="o">);</span>
+    <span class="n">gc</span><span class="o">.</span><span class="na">dispose</span><span class="o">();</span>
+
+    <span class="c1">// write picture contents into RGB AVFrame</span>
+    <span class="nc">DataBufferByte</span> <span class="n">dataBufferByte</span> <span class="o">=</span> 
+	<span class="o">(</span><span class="nc">DataBufferByte</span><span class="o">)</span> <span class="n">image</span><span class="o">.</span><span class="na">getRaster</span><span class="o">().</span><span class="na">getDataBuffer</span><span class="o">();</span>
+    <span class="n">rgbFrame</span><span class="o">.</span><span class="na">data</span><span class="o">(</span><span class="mi">0</span><span class="o">).</span><span class="na">put</span><span class="o">(</span><span class="n">dataBufferByte</span><span class="o">.</span><span class="na">getData</span><span class="o">());</span>
+
+    <span class="c1">// convert RGB AVFrame into yuv420p AVFrame</span>
+    <span class="n">swscale</span><span class="o">.</span><span class="na">sws_scale</span><span class="o">(</span>
+        <span class="n">swsContext</span><span class="o">,</span> <span class="n">rgbFrame</span><span class="o">.</span><span class="na">data</span><span class="o">(),</span> <span class="n">rgbFrame</span><span class="o">.</span><span class="na">linesize</span><span class="o">(),</span> <span class="mi">0</span><span class="o">,</span>
+        <span class="n">frame</span><span class="o">.</span><span class="na">height</span><span class="o">(),</span> <span class="n">frame</span><span class="o">.</span><span class="na">data</span><span class="o">(),</span> <span class="n">frame</span><span class="o">.</span><span class="na">linesize</span><span class="o">()</span>
+    <span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Send AVFrame to the codec context:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">private</span> <span class="kt">void</span> <span class="nf">sendFrame</span><span class="o">(</span><span class="nc">AVFrame</span> <span class="n">o</span><span class="o">)</span> <span class="o">{</span>
+    <span class="kt">int</span> <span class="n">r</span> <span class="o">=</span> <span class="n">avcodec</span><span class="o">.</span><span class="na">avcodec_send_frame</span><span class="o">(</span><span class="n">cc</span><span class="o">,</span> <span class="n">o</span><span class="o">);</span>
+    <span class="k">if</span> <span class="o">(</span><span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">receivePacket</span><span class="o">();</span>
+    <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"error: "</span> <span class="o">+</span> <span class="n">r</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Receive AVPacket’s from codec context and pass them into Matroska muxer:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">private</span> <span class="kt">void</span> <span class="nf">receivePacket</span><span class="o">()</span> <span class="o">{</span>
+    <span class="kt">int</span> <span class="n">r</span><span class="o">;</span>
+    <span class="k">while</span> <span class="o">((</span><span class="n">r</span> <span class="o">=</span> <span class="n">avcodec</span><span class="o">.</span><span class="na">avcodec_receive_packet</span><span class="o">(</span><span class="n">cc</span><span class="o">,</span> <span class="n">pkt</span><span class="o">))</span> <span class="o">==</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">av_interleaved_write_frame</span><span class="o">(</span><span class="n">oc</span><span class="o">,</span> <span class="n">pkt</span><span class="o">);</span>
+        <span class="n">av_packet_unref</span><span class="o">(</span><span class="n">pkt</span><span class="o">);</span>
+        <span class="k">if</span> <span class="o">(</span><span class="n">r</span> <span class="o">!=</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+            <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"Error while writing video frame\n"</span><span class="o">);</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+
+    <span class="k">if</span> <span class="o">(</span><span class="n">r</span> <span class="o">!=</span> <span class="no">AVERROR_EAGAIN</span><span class="o">()</span> <span class="o">&amp;&amp;</span> <span class="n">r</span> <span class="o">!=</span> <span class="no">AVERROR_EOF</span><span class="o">())</span> <span class="o">{</span>
+        <span class="k">throw</span> <span class="k">new</span> <span class="nf">RuntimeException</span><span class="o">(</span><span class="s">"error"</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Do not forget to close all resources:</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">private</span> <span class="kt">void</span> <span class="nf">free</span><span class="o">(</span><span class="nc">AVCodecContext</span> <span class="n">cc</span><span class="o">,</span> <span class="nc">AVFormatContext</span> <span class="n">oc</span><span class="o">)</span> <span class="o">{</span>
+    <span class="n">avcodec_close</span><span class="o">(</span><span class="n">cc</span><span class="o">);</span>
+    <span class="n">avcodec_free_context</span><span class="o">(</span><span class="n">cc</span><span class="o">);</span>
+    <span class="n">av_free</span><span class="o">(</span><span class="n">rgbFrame</span><span class="o">.</span><span class="na">data</span><span class="o">(</span><span class="mi">0</span><span class="o">));</span>
+    <span class="n">av_free</span><span class="o">(</span><span class="n">frame</span><span class="o">.</span><span class="na">data</span><span class="o">(</span><span class="mi">0</span><span class="o">));</span>
+    <span class="n">av_free</span><span class="o">(</span><span class="n">rgbFrame</span><span class="o">);</span>
+    <span class="n">av_free</span><span class="o">(</span><span class="n">frame</span><span class="o">);</span>
+
+    <span class="n">avio_close</span><span class="o">(</span><span class="n">oc</span><span class="o">.</span><span class="na">pb</span><span class="o">());</span>
+    <span class="n">av_free</span><span class="o">(</span><span class="n">oc</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>Full code sample is available <a href="https://github.com/vzhn/ffmpeg-java-samples/blob/master/src/main/java/EncodeAndMuxH264.java">here</a></p>
+
+
+  </div><div id="disqus_thread"></div>
+  <script>
+    var disqus_config = function () {
+      this.page.url = 'https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html';
+      this.page.identifier = 'https://vzhilin.me/2019/11/22/encode-and-muxing-h264.html';
+    };
+
+    (function() {
+      var d = document, s = d.createElement('script');
+
+      s.src = 'https://vzhilin-me.disqus.com/embed.js';
+
+      s.setAttribute('data-timestamp', +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript><a class="u-url" href="/2019/11/22/encode-and-muxing-h264.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">Vladimir Zhilin</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">Vladimir Zhilin</li><li><a class="u-email" href="mailto:zhilin.vladimir.nic@example.com">zhilin.vladimir.nic@example.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/vzhn"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">vzhn</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>Software engineer from Saint Petersburg</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
