@@ -45,13 +45,16 @@ if(!(window.doNotTrack === "1" || navigator.doNotTrack === "1" || navigator.doNo
 </header>
 <main class="page-content" aria-label="Content">
       <div class="wrapper">
-        <article class="post">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
 
   <header class="post-header">
-    <h1 class="post-title">DB Tree</h1>
+    <h1 class="post-title p-name" itemprop="name headline">DB Tree</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="" itemprop="datePublished">
+      </time></p>
   </header>
 
-  <div class="post-content">
+  <div class="post-content e-content" itemprop="articleBody">
     <p><a href="https://github.com/db-tree/db-tree-fx/releases/latest"><img src="https://img.shields.io/github/v/release/db-tree/db-tree-fx" alt="GitHub release (latest by date)" /></a></p>
 
 <p>Database row search and navigation using unique and foreign key constraints</p>
@@ -90,8 +93,23 @@ if(!(window.doNotTrack === "1" || navigator.doNotTrack === "1" || navigator.doNo
 <p>See latest <a href="https://github.com/db-tree/db-tree-fx/releases/latest">release packages</a></p>
 
 
-  </div>
+  </div><div id="disqus_thread"></div>
+  <script>
+    var disqus_config = function () {
+      this.page.url = 'https://vzhilin.me/db-tree/';
+      this.page.identifier = 'https://vzhilin.me/db-tree/';
+    };
 
+    (function() {
+      var d = document, s = d.createElement('script');
+
+      s.src = 'https://vzhilin-me.disqus.com/embed.js';
+
+      s.setAttribute('data-timestamp', +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript><a class="u-url" href="/db-tree/" hidden></a>
 </article>
 
       </div>
